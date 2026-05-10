@@ -19,7 +19,7 @@ Projeyi yerel makinenizde çalıştırmak için:
 
 1.  Depoyu klonlayın:
     ```bash
-    git clone https://github.com/emircca/Elite-Chess-Manager.git
+    git clone https://github.com/DrXendria/Elite-Chess-Manager.git
     cd Elite-Chess-Manager
     ```
 2.  Gerekli kütüphaneleri yükleyin:
