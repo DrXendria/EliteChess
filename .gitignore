@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*$py.class
+dist/
+build/
+*.spec
+*.db
+venv/
+.venv/
+.idea/
+.vscode/
+*.xlsx
+*.csv
+!ornek_oyuncular.csv
