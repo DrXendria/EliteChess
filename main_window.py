@@ -1,6 +1,6 @@
 """
 
-Main window for Swiss Chess Tournament Manager.
+Main window for Elite Chess Tournament Manager.
 
 """
 
@@ -17,8 +17,8 @@ import shutil
 import urllib.request
 
 import re
-
 import json
+import uuid
 
 from PyQt6.QtWidgets import (
 
@@ -2138,11 +2138,11 @@ class MainWindow(QMainWindow):
 
         # Title
 
-        title = f"{t.name} — PAU Swiss Chess Tournament Manager"
+        title = f"{t.name} — Elite Chess Tournament Manager"
 
         if self.current_filepath:
 
-            title = f"{t.name} [{os.path.basename(self.current_filepath)}] — PAU Swiss Chess Tournament Manager"
+            title = f"{t.name} [{os.path.basename(self.current_filepath)}] — Elite Chess Tournament Manager"
 
         self.setWindowTitle(title)
 
@@ -2611,29 +2611,19 @@ class MainWindow(QMainWindow):
             "<p><b>Designed & Developed by Emir Cica</b></p>")
 
     def _show_dashboard(self):
-
         dlg = DashboardDialog(self)
-
         if dlg.exec():
-
-            if dlg.selected_tournament_id:
-
+            if dlg.open_file_requested:
+                self._open_tournament()
+            elif dlg.selected_tournament_id:
                 t = load_tournament_from_db(dlg.selected_tournament_id)
-
                 if t:
-
                     self.tournament = t
-
                     self.current_filepath = ""
-
                     self._update_ui()
-
                 else:
-
                     QMessageBox.critical(self, "Hata", "Turnuva veritabanından yüklenemedi!")
-
             else:
-
                 self._new_tournament()
 
 
@@ -2723,21 +2713,29 @@ class MainWindow(QMainWindow):
 
 
     def _save_tournament_as(self):
-
         filepath, _ = QFileDialog.getSaveFileName(
-
             self, "Turnuva Kaydet", f"{self.tournament.name}.swt",
-
             "Swiss Tournament Files (*.swt);;JSON Files (*.json)"
-
         )
-
         if filepath:
+            # Ask if it should be a new tournament in the dashboard
+            reply = QMessageBox.question(
+                self, "Kopya Oluşturulsun mu?",
+                "Bu dosyayı yeni bir turnuva kaydı (kopya) olarak mı oluşturmak istiyorsunuz?\n\n"
+                "Evet: Ana ekranda (Dashboard) ayrı bir kayıt olarak görünür.\n"
+                "Hayır: Mevcut turnuva kaydını bu dosyaya bağlar.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
+            )
+            
+            if reply == QMessageBox.StandardButton.Cancel:
+                return
 
+            if reply == QMessageBox.StandardButton.Yes:
+                # Generate new identity for the copy
+                self.tournament.id = str(uuid.uuid4())
+            
             self.current_filepath = filepath
-
             self._save_tournament()
-
             self._update_ui()
 
 

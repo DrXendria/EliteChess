@@ -864,10 +864,11 @@ class DashboardDialog(QDialog):
     """Startup dashboard to select or create tournaments from the SQLite database."""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("PAU SCTM - Turnuva Yöneticisi")
+        self.setWindowTitle("Elite Chess - Turnuva Yöneticisi")
         self.setWindowIcon(QIcon(resource_path("resources/logo.png")))
         self.resize(600, 400)
         self.selected_tournament_id = None
+        self.open_file_requested = False
         self._init_ui()
         self._load_data()
 
@@ -901,6 +902,11 @@ class DashboardDialog(QDialog):
         self.btn_new.clicked.connect(self._on_new)
         btn_layout.addWidget(self.btn_new)
 
+        self.btn_open_file = QPushButton("📁 Dosyadan Aç...")
+        self.btn_open_file.setProperty("secondary", True)
+        self.btn_open_file.clicked.connect(self._on_open_file)
+        btn_layout.addWidget(self.btn_open_file)
+
         btn_layout.addStretch()
 
         self.btn_delete = QPushButton("🗑️ Sil")
@@ -913,6 +919,10 @@ class DashboardDialog(QDialog):
         btn_layout.addWidget(self.btn_open)
 
         layout.addLayout(btn_layout)
+
+    def _on_open_file(self):
+        self.open_file_requested = True
+        self.accept()
 
     def _load_data(self):
         from database import get_all_tournaments_info
