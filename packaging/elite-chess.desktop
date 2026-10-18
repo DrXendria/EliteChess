@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Elite Chess
+GenericName=Chess Tournament Manager
+GenericName[tr]=Satranç Turnuva Yöneticisi
+Comment=FIDE Compliant Swiss Chess Tournament Manager
+Comment[tr]=FIDE Uyumlu Satranç Turnuva Yönetim Sistemi
+Exec=/usr/bin/elite-chess
+Icon=elite-chess
+Terminal=false
+Type=Application
+Categories=Game;BoardGame;Office;
+Keywords=chess;satranc;tournament;turnuva;fide;swiss;
+StartupWMClass=Elite Chess Tournament Manager

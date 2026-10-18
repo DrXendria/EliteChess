@@ -280,7 +280,7 @@ def _direct_encounter(t: Tournament, pid: str) -> float:
     player_score = t.get_player_score(pid)
     # Find all players with the same score
     same_score_ids = set()
-    for p in t.get_active_players():
+    for p in t.players:
         if p.id != pid and abs(t.get_player_score(p.id) - player_score) < 0.001:
             same_score_ids.add(p.id)
 

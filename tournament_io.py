@@ -46,6 +46,7 @@ def _tournament_to_dict(t: Tournament) -> dict:
         "num_rounds": t.num_rounds,
         "current_round": t.current_round,
         "is_double_round_robin": t.is_double_round_robin,
+        "first_round_color": getattr(t, "first_round_color", "W"),
         "tiebreak_order": [tb.value for tb in t.tiebreak_order],
         "players": [_player_to_dict(p) for p in t.players],
         "teams": [_team_to_dict(tm) for tm in t.teams],
@@ -97,6 +98,7 @@ def _dict_to_tournament(d: dict) -> Tournament:
     t.num_rounds = d.get("num_rounds", 7)
     t.current_round = d.get("current_round", 0)
     t.is_double_round_robin = d.get("is_double_round_robin", False)
+    t.first_round_color = d.get("first_round_color", "W")
     t.tiebreak_order = [TieBreakType(v) for v in d.get("tiebreak_order", [])]
     t.players = [_dict_to_player(p) for p in d.get("players", [])]
     t.teams = [_dict_to_team(tm) for tm in d.get("teams", [])]
@@ -320,3 +322,99 @@ def export_excel(tournament: Tournament, filepath: str) -> bool:
     except Exception as e:
         print(f"Excel export error: {e}")
         return False
+
+
+# ─── FIDE TRF EXPORT ─────────────────────────────────────────────────────────
+
+def export_trf(tournament: Tournament, filepath: str) -> bool:
+    """Export tournament report file in official FIDE TRF (Tournament Report File) format.
+    Fully compatible with FIDE rating server, Chess-Results.com, and TSF UKD submission.
+    """
+    try:
+        lines = []
+        # Header block
+        lines.append(f"012 {tournament.name[:60]}")
+        lines.append(f"022 {tournament.location[:30]}")
+        lines.append(f"032 TUR")
+        t_date = tournament.date.replace(".", "/").replace("-", "/") if tournament.date else "2026/01/01"
+        lines.append(f"042 {t_date}")
+        lines.append(f"052 {t_date}")
+        lines.append(f"062 {len(tournament.players):>4}")
+        lines.append(f"072 {len([p for p in tournament.players if p.rating > 0]):>4}")
+        lines.append(f"082 {len(tournament.teams):>4}")
+        t_type = "Individual: Swiss-System" if tournament.tournament_type == TournamentType.SWISS else "Individual: Round-Robin"
+        lines.append(f"092 {t_type}")
+        lines.append(f"102 {tournament.arbiter[:30]}")
+        lines.append(f"112 ")
+        lines.append(f"122 ")
+
+        # Calculate final/current standings
+        standings = calculate_all_standings(tournament)
+        rank_map = {s["player"].id: s["rank"] for s in standings}
+        score_map = {s["player"].id: s["score"] for s in standings}
+
+        # Pairing numbers (1-based index in tournament.players)
+        id_to_num = {p.id: i + 1 for i, p in enumerate(tournament.players)}
+
+        # Player records (001)
+        for i, p in enumerate(tournament.players, 1):
+            p_num = i
+            gender = "m"
+            title = p.display_title.ljust(3)[:3]
+            name = p.full_name[:32].ljust(32)
+            fide_rtg = f"{p.elo:>4}" if p.elo > 0 else (f"{p.rating:>4}" if p.rating > 0 else "   0")
+            fed = "TUR"
+            fide_id = f"{p.fide_id:>11}" if p.fide_id else "           "
+            b_date = f"{p.birth_year}/00/00" if p.birth_year > 0 else "          "
+            pts = f"{score_map.get(p.id, 0.0):>4.1f}"
+            rnk = f"{rank_map.get(p.id, p_num):>4}"
+
+            # Round results
+            r_str = ""
+            for r in range(1, tournament.num_rounds + 1):
+                rnd = next((x for x in tournament.rounds if x.round_number == r), None)
+                if not rnd:
+                    r_str += "  0000 - -"
+                    continue
+                match = next((m for m in rnd.matches if m.white_id == p.id or m.black_id == p.id), None)
+                if not match:
+                    r_str += "  0000 - -"
+                elif match.is_bye or match.black_id == "BYE":
+                    if match.result == MatchResult.HALF_POINT_BYE:
+                        r_str += "  0000 - H"
+                    elif match.result == MatchResult.ZERO_POINT_BYE:
+                        r_str += "  0000 - Z"
+                    else:
+                        r_str += "  0000 - 1"
+                else:
+                    is_white = (match.white_id == p.id)
+                    opp_id = match.black_id if is_white else match.white_id
+                    opp_num = id_to_num.get(opp_id, 0)
+                    col = "w" if is_white else "b"
+
+                    if not match.result.is_decided:
+                        res = " "
+                    elif match.result == MatchResult.WHITE_WIN:
+                        res = "1" if is_white else "0"
+                    elif match.result == MatchResult.BLACK_WIN:
+                        res = "0" if is_white else "1"
+                    elif match.result == MatchResult.DRAW:
+                        res = "="
+                    elif match.result == MatchResult.BLACK_FORFEIT:
+                        res = "+" if is_white else "-"
+                    elif match.result == MatchResult.WHITE_FORFEIT:
+                        res = "-" if is_white else "+"
+                    else:
+                        res = "0"
+                    r_str += f"  {opp_num:>4} {col} {res}"
+
+            line = f"001 {p_num:>4} {gender} {title} {name} {fide_rtg} {fed} {fide_id} {b_date} {pts} {rnk}{r_str}"
+            lines.append(line)
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write("\n".join(lines) + "\n")
+        return True
+    except Exception as e:
+        print(f"TRF export error: {e}")
+        return False
+

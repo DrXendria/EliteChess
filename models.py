@@ -271,6 +271,7 @@ class Tournament:
     current_round: int = 0
     tiebreak_order: list[TieBreakType] = field(default_factory=lambda: list(TSF_2025_DEFAULT_TIEBREAKS))
     is_double_round_robin: bool = False
+    first_round_color: str = "W"  # "W" (White) or "B" (Black) for Seed 1 in Round 1 per FIDE C.04.3.1.2
 
     def get_player_by_id(self, player_id: str) -> Optional[Player]:
         for p in self.players:
@@ -297,13 +298,13 @@ class Tournament:
         return score
 
     def get_player_opponents(self, player_id: str) -> list[tuple[str, float, str]]:
-        """Returns list of (opponent_id, score_vs_opponent, color) for all rounds."""
+        """Returns list of (opponent_id, score_vs_opponent, color) for all completed rounds played over the board."""
         opponents = []
         for rnd in self.rounds:
             if not rnd.is_completed:
                 continue
             for match in rnd.matches:
-                if match.is_bye and match.white_id == player_id:
+                if not match.result.is_played:
                     continue
                 if match.white_id == player_id and match.black_id != "BYE":
                     opponents.append((match.black_id, match.result.white_score, "W"))
@@ -312,13 +313,12 @@ class Tournament:
         return opponents
 
     def have_played(self, player1_id: str, player2_id: str) -> bool:
+        """Returns True if the two players have already met (played or forfeit) in an earlier round."""
         for rnd in self.rounds:
             for match in rnd.matches:
                 if (match.white_id == player1_id and match.black_id == player2_id) or \
                    (match.white_id == player2_id and match.black_id == player1_id):
-                    # FIDE Rule: Only games actually played over the board prevent a rematch.
-                    # If the previous encounter was a forfeit (hükmen), they CAN play again.
-                    if match.result.is_played:
+                    if match.result.is_played or match.result.is_forfeit:
                         return True
         return False
 
@@ -338,10 +338,12 @@ class Tournament:
         return colors
 
     def player_had_bye(self, player_id: str) -> bool:
+        """Returns True if the player already received a pairing-allocated full-point bye."""
         for rnd in self.rounds:
             for match in rnd.matches:
-                if match.is_bye and match.white_id == player_id:
-                    return True
+                if match.white_id == player_id:
+                    if match.result == MatchResult.BYE or (match.black_id == "BYE" and match.result not in (MatchResult.HALF_POINT_BYE, MatchResult.ZERO_POINT_BYE)):
+                        return True
         return False
 
     def get_active_players(self) -> list['Player']:
@@ -525,3 +527,14 @@ class Tournament:
             UnplayedCategory.REQUESTED_BYE_TERMINAL,
             UnplayedCategory.FORFEIT_LOSS,
         )
+
+
+def turkish_sort_key(s: str) -> list[int]:
+    """Sort key for Turkish alphabetical collation (TSF standard):
+    a, b, c, ç, d, e, f, g, ğ, h, ı, i, j, k, l, m, n, o, ö, p, r, s, ş, t, u, ü, v, y, z
+    """
+    TR_ALPHABET = "abcçdefgğhıijklmnoöprsştuüvyz"
+    TR_MAP = {c: i for i, c in enumerate(TR_ALPHABET)}
+    s_clean = s.replace("İ", "i").replace("I", "ı").lower()
+    return [TR_MAP.get(c, ord(c) + 1000) for c in s_clean]
+

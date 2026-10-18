@@ -3,8 +3,18 @@ import json
 import threading
 import os
 import sys
-from PyQt6.QtCore import pyqtSignal, QObject
-from tiebreak import calculate_all_standings
+try:
+    from PyQt6.QtCore import pyqtSignal, QObject
+except ImportError:
+    class QObject:
+        pass
+    def pyqtSignal(*args):
+        class DummySignal:
+            def emit(self, *a, **k): pass
+            def connect(self, *a, **k): pass
+        return DummySignal()
+
+from tiebreak import calculate_all_standings, _percentage_to_rd
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -108,8 +118,13 @@ class TournamentHandler(http.server.BaseHTTPRequestHandler):
         .badge { padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; }
         .badge-w { background: #e2e8f0; color: #475569; border: 1px solid #cbd5e1; }
         .badge-b { background: #1e293b; color: #f8fafc; border: 1px solid #334155; }
-        .res-win { color: #16a34a; }
-        .res-loss { color: #dc2626; }
+        .res-win { color: #16a34a; font-weight: bold; }
+        .res-loss { color: #dc2626; font-weight: bold; }
+        .res-draw { color: #d97706; font-weight: bold; }
+        .delta-pos { color: #16a34a; font-weight: 700; }
+        .delta-neg { color: #dc2626; font-weight: 700; }
+        .delta-zero { color: var(--secondary); font-weight: 600; }
+        .player-link:hover { text-decoration: underline; color: var(--primary); }
         .footer { text-align: center; color: var(--secondary); font-size: 0.75rem; margin: 2rem 0; }
     </style>
 </head>
@@ -179,7 +194,14 @@ class TournamentHandler(http.server.BaseHTTPRequestHandler):
             document.getElementById('standings-body').innerHTML = tournamentData.standings.map(p => `
                 <tr class="clickable-row" onclick="showPlayer('${p.id}')">
                     <td class="rank">${p.rank}</td>
-                    <td><small style="color:var(--accent)">${p.title || ''}</small> <b>${p.name}</b><br><small>${p.rating} | ${p.club || ''}</small></td>
+                    <td>
+                        <small style="color:var(--accent)">${p.title || ''}</small> <b>${p.name}</b><br>
+                        <small style="color:var(--secondary)">
+                            ${p.rating > 0 ? p.rating : 'UKD\'siz'}
+                            ${(p.delta !== null && p.delta !== undefined) ? `<span style="color:${p.delta >= 0 ? '#16a34a' : '#dc2626'}; font-weight:600; margin-left:4px;">(${p.delta >= 0 ? '+' : ''}${p.delta.toFixed(1)})</span>` : ''}
+                            ${p.club ? ' | ' + p.club : ''}
+                        </small>
+                    </td>
                     <td class="score">${p.score.toFixed(1)}</td>
                 </tr>
             `).join('');
@@ -226,11 +248,11 @@ class TournamentHandler(http.server.BaseHTTPRequestHandler):
                                 <tr>
                                     <td style="width:30px"><small>${m.board}</small></td>
                                     <td style="width:40%; cursor:pointer; color:var(--primary)" onclick="showPlayer('${m.white_id}')">
-                                        <b>${m.white}</b><br><small style="color:var(--secondary)">${m.white_rating}</small>
+                                        <b>${m.white}</b><br><small style="color:var(--secondary)">${m.white_rating_str || (m.white_rating > 0 ? m.white_rating : "UKD'siz")}</small>
                                     </td>
                                     <td style="text-align:center; font-weight:bold; width:60px">${m.result}</td>
                                     <td style="text-align:right; width:40%; cursor:pointer; color:var(--primary)" onclick="${m.black_id !== 'BYE' ? `showPlayer('${m.black_id}')` : ''}">
-                                        <b>${m.black}</b><br><small style="color:var(--secondary)">${m.black_rating}</small>
+                                        <b>${m.black}</b><br><small style="color:var(--secondary)">${m.black_rating_str || (m.black_rating > 0 ? m.black_rating : (m.black_id === 'BYE' ? '—' : "UKD'siz"))}</small>
                                     </td>
                                 </tr>
                             `).join('')}
@@ -248,26 +270,100 @@ class TournamentHandler(http.server.BaseHTTPRequestHandler):
         function showPlayer(id) {
             const p = tournamentData.standings.find(x => x.id == id);
             if (!p) return;
+
+            const liveRatingDisplay = (p.live_rating !== null && p.live_rating !== undefined)
+                ? `${p.live_rating.toFixed(1)} <span class="badge" style="background:${p.delta >= 0 ? 'rgba(22,163,74,0.15)' : 'rgba(220,38,38,0.15)'}; color:${p.delta >= 0 ? '#16a34a' : '#dc2626'}; margin-left:4px;">${p.delta >= 0 ? '+' : ''}${p.delta.toFixed(1)}</span>`
+                : '<span style="color:var(--secondary)">—</span>';
+
+            const perfDisplay = p.perf 
+                ? `<span style="color:var(--primary); font-weight:800; font-size:1.15rem">${p.perf}</span>`
+                : '<span style="color:var(--secondary)">—</span>';
+
+            const baseRatingDisplay = p.rating > 0 
+                ? `${p.rating}` 
+                : '<span style="color:var(--secondary)">UKD\'siz</span>';
+
+            const playedMatchesCount = p.matches.filter(m => m.result !== '-').length;
+
             const content = `
-                <h2 style="margin-top:0">${p.name}</h2>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:1.5rem; background:rgba(0,0,0,0.05); padding:1rem; border-radius:12px; font-size:0.9rem">
-                    <div><b>UKD:</b> ${p.ukd || '-'}</div>
-                    <div><b>ELO:</b> ${p.elo || '-'}</div>
-                    <div><b>Rating:</b> ${p.rating}</div>
-                    <div><b>Perf. Rating:</b> <span style="color:var(--primary); font-weight:800">${p.perf || '-'}</span></div>
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem; border-bottom:1px solid var(--border); padding-bottom:0.75rem;">
+                    <div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            ${p.title ? `<span class="badge" style="background:var(--accent); color:#000;">${p.title}</span>` : ''}
+                            <h2 style="margin:0; font-size:1.3rem;">${p.name}</h2>
+                        </div>
+                        ${p.club ? `<small style="color:var(--secondary);">${p.club}</small>` : ''}
+                    </div>
+                    <div style="text-align:right;">
+                        <span style="font-size:0.8rem; color:var(--secondary);">Sıralama</span>
+                        <div style="font-size:1.4rem; font-weight:800; color:var(--primary);">#${p.rank}</div>
+                    </div>
                 </div>
-                <h3 style="font-size:1rem; margin-bottom:0.5rem">Maç Geçmişi</h3>
+
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:10px; margin-bottom:1.5rem;">
+                    <div class="card" style="margin:0; padding:0.75rem; text-align:center; background:rgba(0,0,0,0.02); border:1px solid var(--border);">
+                        <small style="color:var(--secondary); text-transform:uppercase; font-size:0.7rem; font-weight:700;">Başlangıç</small>
+                        <div style="font-size:1.1rem; font-weight:700; margin-top:4px;">${baseRatingDisplay}</div>
+                        <small style="font-size:0.7rem; color:var(--secondary);">UKD: ${p.ukd || '—'} | ELO: ${p.elo || '—'}</small>
+                    </div>
+                    <div class="card" style="margin:0; padding:0.75rem; text-align:center; background:rgba(0,0,0,0.02); border:1px solid var(--border);">
+                        <small style="color:var(--secondary); text-transform:uppercase; font-size:0.7rem; font-weight:700;">Canlı Rating</small>
+                        <div style="font-size:1.1rem; font-weight:700; margin-top:4px;">${liveRatingDisplay}</div>
+                        <small style="font-size:0.7rem; color:var(--secondary);">Değişim (K=20)</small>
+                    </div>
+                    <div class="card" style="margin:0; padding:0.75rem; text-align:center; background:rgba(0,0,0,0.02); border:1px solid var(--border);">
+                        <small style="color:var(--secondary); text-transform:uppercase; font-size:0.7rem; font-weight:700;">Perf. (TPR)</small>
+                        <div style="margin-top:4px;">${perfDisplay}</div>
+                        <small style="font-size:0.7rem; color:var(--secondary);">FIDE C.07</small>
+                    </div>
+                    <div class="card" style="margin:0; padding:0.75rem; text-align:center; background:rgba(0,0,0,0.02); border:1px solid var(--border);">
+                        <small style="color:var(--secondary); text-transform:uppercase; font-size:0.7rem; font-weight:700;">Toplam Puan</small>
+                        <div style="font-size:1.2rem; font-weight:800; color:var(--primary); margin-top:4px;">${p.score.toFixed(1)}</div>
+                        <small style="font-size:0.7rem; color:var(--secondary);">${playedMatchesCount} maç</small>
+                    </div>
+                </div>
+
+                <h3 style="font-size:1rem; margin-bottom:0.75rem;">Maç Geçmişi</h3>
                 <table style="font-size:0.85rem">
-                    <thead><tr><th>Tur</th><th>Rakip</th><th>Renk</th><th>Sonuç</th></tr></thead>
+                    <thead>
+                        <tr>
+                            <th style="width:36px;">Tur</th>
+                            <th style="width:45px;">Masa</th>
+                            <th>Rakip</th>
+                            <th style="width:45px; text-align:center;">Renk</th>
+                            <th style="width:55px; text-align:center;">Sonuç</th>
+                            <th style="width:65px; text-align:right;">Canlı ΔR</th>
+                        </tr>
+                    </thead>
                     <tbody>
-                        ${p.matches.map(m => `
-                            <tr>
-                                <td>${m.round}</td>
-                                <td>${m.opponent} <small>(${m.opp_rating})</small></td>
-                                <td><span class="badge badge-${m.color.toLowerCase()}">${m.color === 'W' ? 'B' : 'S'}</span></td>
-                                <td class="${m.result === '1'?'res-win':m.result === '0'?'res-loss':''}" style="font-size:1.1rem"><b>${m.result}</b></td>
-                            </tr>
-                        `).join('')}
+                        ${p.matches.map(m => {
+                            let resClass = "";
+                            if (m.result.startsWith('1')) resClass = "res-win";
+                            else if (m.result.startsWith('0')) resClass = "res-loss";
+                            else if (m.result.includes('½')) resClass = "res-draw";
+
+                            let deltaClass = "delta-zero";
+                            if (m.delta_val > 0) deltaClass = "delta-pos";
+                            else if (m.delta_val < 0) deltaClass = "delta-neg";
+
+                            const oppClick = m.opp_id ? `onclick="showPlayer('${m.opp_id}')" class="player-link" style="cursor:pointer;"` : '';
+
+                            return `
+                                <tr>
+                                    <td><b>${m.round}</b></td>
+                                    <td><small style="color:var(--secondary)">M.${m.board}</small></td>
+                                    <td>
+                                        <b ${oppClick}>${m.opponent}</b>
+                                        <br><small style="color:var(--secondary)">(${m.opp_rating_str})</small>
+                                    </td>
+                                    <td style="text-align:center;">
+                                        <span class="badge ${m.color === 'W' ? 'badge-w' : 'badge-b'}">${m.color === 'W' ? 'B' : 'S'}</span>
+                                    </td>
+                                    <td style="text-align:center; font-size:1.05rem;" class="${resClass}"><b>${m.result}</b></td>
+                                    <td style="text-align:right; font-weight:700;" class="${deltaClass}">${m.delta_r}</td>
+                                </tr>
+                            `;
+                        }).join('')}
                     </tbody>
                 </table>
             `;
@@ -326,52 +422,80 @@ class TournamentHandler(http.server.BaseHTTPRequestHandler):
         standings_json = []
         for s in standings:
             p = s["player"]
-            opp_ratings = []
+            rated_opp_ratings = []
+            rated_score = 0.0
+            total_delta = 0.0
             player_matches = []
+
             for rnd in t.rounds:
                 for m in rnd.matches:
-                    opp = None
-                    res = ""
-                    color = ""
-                    if m.white_id == p.id:
-                        opp = t.get_player_by_id(m.black_id)
-                        # Points for White
-                        if not m.result.is_decided:
-                            pts = "-"
-                        else:
-                            res_val = m.result.value
-                            if res_val == "1-0": pts = "1"
-                            elif res_val == "0-1": pts = "0"
-                            elif res_val == "1/2-1/2": pts = "½"
-                            else: pts = "0"
-                        color = "W"
-                    elif m.black_id == p.id:
-                        opp = t.get_player_by_id(m.white_id)
-                        # Points for Black (Inverted)
-                        if not m.result.is_decided:
-                            pts = "-"
-                        else:
-                            res_val = m.result.value
-                            if res_val == "1-0": pts = "0"
-                            elif res_val == "0-1": pts = "1"
-                            elif res_val == "1/2-1/2": pts = "½"
-                            else: pts = "0"
-                        color = "B"
-                    
-                    if opp or (m.white_id == p.id and m.black_id == "BYE"):
-                        if opp: opp_ratings.append(opp.rating)
-                        player_matches.append({
-                            "round": rnd.round_number,
-                            "opponent": opp.full_name if opp else "BYE",
-                            "opp_rating": opp.rating if opp else 0,
-                            "result": pts if opp else "1",
-                            "color": color
-                        })
+                    if m.white_id != p.id and m.black_id != p.id:
+                        continue
 
-            avg_opp_rating = sum(opp_ratings) / len(opp_ratings) if opp_ratings else 0
-            score_pct = s["score"] / t.current_round if t.current_round > 0 else 0
-            dp = 800 * (score_pct - 0.5) 
-            perf_rating = int(avg_opp_rating + dp) if opp_ratings else 0
+                    is_white = (m.white_id == p.id)
+                    opp_id = m.black_id if is_white else m.white_id
+                    color_code = "W" if is_white else "B"
+
+                    is_bye = m.is_bye or (is_white and m.black_id == "BYE")
+                    opp = t.get_player_by_id(opp_id) if not is_bye else None
+
+                    opp_name = opp.full_name if opp else ("BYE" if is_bye else "—")
+                    opp_rating = opp.rating if opp else 0
+                    opp_rating_str = str(opp_rating) if opp_rating > 0 else ("—" if is_bye else "UKD'siz")
+
+                    res_display = "-"
+                    match_delta = None
+                    delta_r_str = "—"
+
+                    if m.result.is_decided:
+                        raw_score = m.result.white_score if is_white else m.result.black_score
+                        if m.result.is_played:
+                            if raw_score == 1.0: res_display = "1"
+                            elif raw_score == 0.5: res_display = "½"
+                            else: res_display = "0"
+                        elif m.result.is_forfeit:
+                            res_display = f"{'1' if raw_score == 1.0 else '0'} (H)"
+                        elif is_bye:
+                            res_display = f"{'1' if raw_score == 1.0 else ('½' if raw_score == 0.5 else '0')} (BYE)"
+                        else:
+                            res_display = str(raw_score)
+
+                        # Only actually played games against rated opponents count for rating change and TPR
+                        if m.result.is_played and opp and opp.rating > 0:
+                            rated_opp_ratings.append(opp.rating)
+                            rated_score += raw_score
+
+                            if p.rating > 0:
+                                diff = max(-400, min(400, opp.rating - p.rating))
+                                we = 1.0 / (1.0 + 10.0 ** (diff / 400.0))
+                                k = 20.0
+                                match_delta = round(k * (raw_score - we), 1)
+                                total_delta += match_delta
+                                delta_r_str = f"{'+' if match_delta > 0 else ''}{match_delta:.1f}"
+
+                    player_matches.append({
+                        "round": rnd.round_number,
+                        "board": m.board,
+                        "opp_id": opp.id if opp else "",
+                        "opponent": opp_name,
+                        "opp_rating": opp_rating,
+                        "opp_rating_str": opp_rating_str,
+                        "result": res_display,
+                        "color": color_code,
+                        "is_played": m.result.is_played if m.result.is_decided else False,
+                        "delta_r": delta_r_str,
+                        "delta_val": match_delta
+                    })
+
+            # Calculate TPR (FIDE Art. 10.2)
+            perf_rating = None
+            if rated_opp_ratings:
+                aro = sum(rated_opp_ratings) / len(rated_opp_ratings)
+                score_pct = rated_score / len(rated_opp_ratings)
+                dp = _percentage_to_rd(score_pct)
+                perf_rating = int(round(aro + dp))
+
+            live_rating = round(p.rating + total_delta, 1) if p.rating > 0 else None
 
             standings_json.append({
                 "id": p.id,
@@ -384,6 +508,8 @@ class TournamentHandler(http.server.BaseHTTPRequestHandler):
                 "club": p.club,
                 "score": s["score"],
                 "perf": perf_rating,
+                "live_rating": live_rating,
+                "delta": round(total_delta, 1) if p.rating > 0 else None,
                 "matches": player_matches,
                 "tiebreaks": {tb.value: s["tiebreaks"].get(tb, 0.0) for tb in t.tiebreak_order}
             })
@@ -399,9 +525,11 @@ class TournamentHandler(http.server.BaseHTTPRequestHandler):
                     "white_id": m.white_id,
                     "white": wp.full_name if wp else m.white_id,
                     "white_rating": wp.rating if wp else 0,
+                    "white_rating_str": str(wp.rating) if wp and wp.rating > 0 else "UKD'siz",
                     "black_id": m.black_id,
                     "black": bp.full_name if bp else "BYE",
                     "black_rating": bp.rating if bp else 0,
+                    "black_rating_str": str(bp.rating) if bp and bp.rating > 0 else ("—" if m.black_id == "BYE" else "UKD'siz"),
                     "result": m.result.value,
                     "is_completed": m.result.is_decided
                 })

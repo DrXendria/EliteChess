@@ -23,15 +23,10 @@ import uuid
 from PyQt6.QtWidgets import (
 
     QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
-
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-
     QPushButton, QLabel, QComboBox, QStatusBar, QMenuBar, QMenu,
-
     QFileDialog, QMessageBox, QToolBar, QLineEdit, QGroupBox,
-
-    QFormLayout, QApplication, QSpinBox, QCheckBox, QTextEdit
-
+    QFormLayout, QApplication, QSpinBox, QCheckBox, QTextEdit, QStyle
 )
 
 from PyQt6.QtCore import Qt, QSize, QTimer, QThread, pyqtSignal
@@ -181,18 +176,12 @@ class CloudflareDownloader(QThread):
 
 
 from models import (
-
     Tournament, Player, Team, Match, Round, MatchResult,
-
-    TournamentType, TieBreakType, Title
-
+    TournamentType, TieBreakType, Title, turkish_sort_key
 )
-
 from pairing import generate_pairings, swap_match_colors
-
 from tiebreak import calculate_all_standings
-
-from tournament_io import save_tournament, load_tournament, export_html, export_excel
+from tournament_io import save_tournament, load_tournament, export_html, export_excel, export_trf
 
 from dialogs import TournamentDialog, PlayerDialog, TeamDialog, FideSearchDialog, PlayerListImportDialog, PlayerDetailsDialog, DashboardDialog, UnpairedPlayersDialog
 
@@ -1307,6 +1296,47 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+def get_app_icon(theme_names, standard_pixmap=None, local_svg=None) -> QIcon:
+    """Find the best available icon across Linux system themes, local SVG assets, and Qt standard pixmaps."""
+    if isinstance(theme_names, str):
+        theme_names = [theme_names]
+
+    # 1. Try system icon theme (FreeDesktop / KDE Breeze / GNOME Adwaita)
+    for name in theme_names:
+        if QIcon.hasThemeIcon(name):
+            icon = QIcon.fromTheme(name)
+            if not icon.isNull():
+                return icon
+
+    # 2. Try bundled local SVG icon
+    svg_candidates = []
+    if local_svg:
+        svg_candidates.append(local_svg)
+    for name in theme_names:
+        svg_candidates.append(f"{name}.svg")
+
+    for svg_file in svg_candidates:
+        local_path = resource_path(os.path.join("resources", "icons", svg_file))
+        if os.path.exists(local_path):
+            icon = QIcon(local_path)
+            if not icon.isNull():
+                return icon
+
+    # 3. Try Qt standard pixmap
+    if standard_pixmap is not None:
+        style = QApplication.style()
+        if style:
+            icon = style.standardIcon(standard_pixmap)
+            if not icon.isNull():
+                return icon
+
+    # 4. Fallback to theme query
+    if theme_names:
+        return QIcon.fromTheme(theme_names[0])
+    return QIcon()
+
+
+
 
 
 
@@ -1455,10 +1485,12 @@ class MainWindow(QMainWindow):
 
 
         excel_act = QAction("Excel Dışa Aktar...", self)
-
         excel_act.triggered.connect(self._export_excel)
-
         file_menu.addAction(excel_act)
+
+        trf_act = QAction("FIDE Turnuva Raporu (.trf)...", self)
+        trf_act.triggered.connect(self._export_trf)
+        file_menu.addAction(trf_act)
 
 
 
@@ -1605,85 +1637,61 @@ class MainWindow(QMainWindow):
 
 
     def _create_toolbar(self):
-
         toolbar = QToolBar("Ana Araç Çubuğu")
-
         toolbar.setMovable(False)
-
         toolbar.setIconSize(QSize(20, 20))
-
         self.addToolBar(toolbar)
 
-
-
-        btn_new = QPushButton("📄 Yeni")
-
+        btn_new = QPushButton("Yeni")
+        btn_new.setIcon(get_app_icon(["document-new"], QStyle.StandardPixmap.SP_FileIcon, "document-new.svg"))
+        btn_new.setIconSize(QSize(18, 18))
         btn_new.clicked.connect(self._new_tournament)
-
         toolbar.addWidget(btn_new)
 
-
-
-        btn_open = QPushButton("📂 Aç")
-
+        btn_open = QPushButton("Aç")
+        btn_open.setIcon(get_app_icon(["document-open"], QStyle.StandardPixmap.SP_DialogOpenButton, "document-open.svg"))
+        btn_open.setIconSize(QSize(18, 18))
         btn_open.clicked.connect(self._open_tournament)
-
         toolbar.addWidget(btn_open)
 
-
-
-        btn_save = QPushButton("💾 Kaydet")
-
+        btn_save = QPushButton("Kaydet")
+        btn_save.setIcon(get_app_icon(["document-save"], QStyle.StandardPixmap.SP_DialogSaveButton, "document-save.svg"))
+        btn_save.setIconSize(QSize(18, 18))
         btn_save.clicked.connect(self._save_tournament)
-
         toolbar.addWidget(btn_save)
 
-
-
-        btn_save_as = QPushButton("💾 Farklı Kaydet")
-
+        btn_save_as = QPushButton("Farklı Kaydet")
+        btn_save_as.setIcon(get_app_icon(["document-save-as"], QStyle.StandardPixmap.SP_DialogSaveButton, "document-save-as.svg"))
+        btn_save_as.setIconSize(QSize(18, 18))
         btn_save_as.clicked.connect(self._save_tournament_as)
-
         toolbar.addWidget(btn_save_as)
 
-
-
         toolbar.addSeparator()
 
-
-
-        btn_add = QPushButton("➕ Oyuncu Ekle")
-
+        btn_add = QPushButton("Oyuncu Ekle")
+        btn_add.setIcon(get_app_icon(["list-add", "contact-new", "user-add"], QStyle.StandardPixmap.SP_FileDialogNewFolder, "list-add.svg"))
+        btn_add.setIconSize(QSize(18, 18))
         btn_add.clicked.connect(self._add_player)
-
         toolbar.addWidget(btn_add)
 
-
-
-        btn_import = QPushButton("📋 Liste İçe Aktar")
-
+        btn_import = QPushButton("Liste İçe Aktar")
+        btn_import.setIcon(get_app_icon(["document-import", "insert-table", "edit-paste"], QStyle.StandardPixmap.SP_FileDialogListView, "document-import.svg"))
+        btn_import.setIconSize(QSize(18, 18))
         btn_import.clicked.connect(self._import_player_list)
-
         toolbar.addWidget(btn_import)
-
-
 
         toolbar.addSeparator()
 
-
-
-        btn_pair = QPushButton("🔀 Eşleştir")
-
+        btn_pair = QPushButton("Eşleştir")
+        btn_pair.setIcon(get_app_icon(["media-playlist-shuffle", "view-refresh"], QStyle.StandardPixmap.SP_BrowserReload, "media-playlist-shuffle.svg"))
+        btn_pair.setIconSize(QSize(18, 18))
         btn_pair.clicked.connect(self._generate_pairings)
-
         toolbar.addWidget(btn_pair)
 
-
-
-        btn_complete = QPushButton("✅ Turu Tamamla")
-
+        btn_complete = QPushButton("Turu Tamamla")
+        btn_complete.setIcon(get_app_icon(["dialog-ok-apply", "task-complete", "emblem-default"], QStyle.StandardPixmap.SP_DialogApplyButton, "dialog-ok-apply.svg"))
+        btn_complete.setIconSize(QSize(18, 18))
         btn_complete.clicked.connect(self._complete_round)
-
         toolbar.addWidget(btn_complete)
 
 
@@ -1693,9 +1701,8 @@ class MainWindow(QMainWindow):
 
 
     def _create_tabs(self):
-
         self.tab_widget = QTabWidget()
-
+        self.tab_widget.setIconSize(QSize(18, 18))
         self.setCentralWidget(self.tab_widget)
 
 
@@ -1790,17 +1797,17 @@ class MainWindow(QMainWindow):
 
 
 
-        btn = QPushButton("⚙ Turnuva Ayarlarını Düzenle")
-
+        btn = QPushButton(" Turnuva Ayarlarını Düzenle")
+        btn.setIcon(get_app_icon(["preferences-system"], QStyle.StandardPixmap.SP_FileDialogDetailedView, "preferences-system.svg"))
+        btn.setIconSize(QSize(18, 18))
         btn.clicked.connect(self._edit_tournament_settings)
-
         layout.addWidget(btn)
 
 
 
         layout.addStretch()
 
-        self.tab_widget.addTab(widget, "🏆 Turnuva")
+        self.tab_widget.addTab(widget, get_app_icon(["trophy", "applications-games"], local_svg="trophy.svg"), "Turnuva")
 
 
 
@@ -1876,85 +1883,62 @@ class MainWindow(QMainWindow):
 
 
 
-        btn_select_all = QPushButton("☑ Kayıt: Hepsini Seç")
-
+        btn_select_all = QPushButton(" Kayıt: Hepsini Seç")
+        btn_select_all.setIcon(get_app_icon(["edit-select-all"], local_svg="edit-select-all.svg"))
+        btn_select_all.setIconSize(QSize(16, 16))
         btn_select_all.clicked.connect(self._select_all_players)
-
         btn_layout.addWidget(btn_select_all)
 
-
-
-        btn_deselect_all = QPushButton("☐ Kayıt: Hepsini Temizle")
-
+        btn_deselect_all = QPushButton(" Kayıt: Hepsini Temizle")
+        btn_deselect_all.setIcon(get_app_icon(["edit-clear"], local_svg="edit-clear.svg"))
+        btn_deselect_all.setIconSize(QSize(16, 16))
         btn_deselect_all.setProperty("secondary", True)
-
         btn_deselect_all.clicked.connect(self._deselect_all_players)
-
         btn_layout.addWidget(btn_deselect_all)
 
-
-
-        btn_start_rank = QPushButton("🏆 Başlangıç Sıralaması")
-
+        btn_start_rank = QPushButton(" Başlangıç Sıralaması")
+        btn_start_rank.setIcon(get_app_icon(["trophy", "view-sort-ascending"], local_svg="trophy.svg"))
+        btn_start_rank.setIconSize(QSize(16, 16))
         btn_start_rank.clicked.connect(self._generate_starting_rank)
-
         btn_layout.addWidget(btn_start_rank)
 
-
-
-        btn_add = QPushButton("➕ Ekle")
-
+        btn_add = QPushButton(" Ekle")
+        btn_add.setIcon(get_app_icon(["list-add"], local_svg="list-add.svg"))
+        btn_add.setIconSize(QSize(16, 16))
         btn_add.clicked.connect(self._add_player)
-
         btn_layout.addWidget(btn_add)
 
-
-
-        btn_edit = QPushButton("✏️ Düzenle")
-
+        btn_edit = QPushButton(" Düzenle")
+        btn_edit.setIcon(get_app_icon(["document-edit"], local_svg="document-edit.svg"))
+        btn_edit.setIconSize(QSize(16, 16))
         btn_edit.clicked.connect(self._edit_player)
-
         btn_layout.addWidget(btn_edit)
 
-
-
-        btn_del = QPushButton("🗑️ Sil")
-
+        btn_del = QPushButton(" Sil")
+        btn_del.setIcon(get_app_icon(["edit-delete"], local_svg="edit-delete.svg"))
+        btn_del.setIconSize(QSize(16, 16))
         btn_del.setProperty("danger", True)
-
         btn_del.clicked.connect(self._delete_player)
-
         btn_layout.addWidget(btn_del)
 
-
-
-        btn_fide = QPushButton("🌐 FIDE Import")
-
+        btn_fide = QPushButton(" FIDE Import")
+        btn_fide.setIcon(get_app_icon(["applications-internet"], local_svg="applications-internet.svg"))
+        btn_fide.setIconSize(QSize(16, 16))
         btn_fide.setProperty("secondary", True)
-
         btn_fide.clicked.connect(self._fide_import)
-
         btn_layout.addWidget(btn_fide)
 
-
-
-        btn_team = QPushButton("👥 Takım Ekle")
-
+        btn_team = QPushButton(" Takım Ekle")
+        btn_team.setIcon(get_app_icon(["users", "system-users"], local_svg="users.svg"))
+        btn_team.setIconSize(QSize(16, 16))
         btn_team.setProperty("secondary", True)
-
         btn_team.clicked.connect(self._add_team)
-
         btn_layout.addWidget(btn_team)
 
-
-
         btn_layout.addStretch()
-
         layout.addLayout(btn_layout)
 
-
-
-        self.tab_widget.addTab(widget, "👤 Oyuncular")
+        self.tab_widget.addTab(widget, get_app_icon(["users", "system-users"], local_svg="users.svg"), "Oyuncular")
 
 
 
@@ -2000,39 +1984,29 @@ class MainWindow(QMainWindow):
 
 
 
-        btn_pair = QPushButton("🔀 Eşleştir")
-
+        btn_pair = QPushButton(" Eşleştir")
+        btn_pair.setIcon(get_app_icon(["media-playlist-shuffle"], local_svg="media-playlist-shuffle.svg"))
+        btn_pair.setIconSize(QSize(16, 16))
         btn_pair.clicked.connect(self._generate_pairings)
-
         btn_layout.addWidget(btn_pair)
 
-
-
-        btn_complete = QPushButton("✅ Turu Tamamla")
-
+        btn_complete = QPushButton(" Turu Tamamla")
+        btn_complete.setIcon(get_app_icon(["dialog-ok-apply"], local_svg="dialog-ok-apply.svg"))
+        btn_complete.setIconSize(QSize(16, 16))
         btn_complete.clicked.connect(self._complete_round)
-
         btn_layout.addWidget(btn_complete)
 
-
-
-        btn_delete = QPushButton("🗑️ Turu Sil")
-
+        btn_delete = QPushButton(" Turu Sil")
+        btn_delete.setIcon(get_app_icon(["edit-delete"], local_svg="edit-delete.svg"))
+        btn_delete.setIconSize(QSize(16, 16))
         btn_delete.setProperty("danger", True)
-
         btn_delete.clicked.connect(self._delete_current_round)
-
         btn_layout.addWidget(btn_delete)
 
-
-
         btn_layout.addStretch()
-
         layout.addLayout(btn_layout)
 
-
-
-        self.tab_widget.addTab(widget, "🎯 Turlar")
+        self.tab_widget.addTab(widget, get_app_icon(["rounds", "media-playlist-shuffle"], local_svg="rounds.svg"), "Turlar")
 
 
 
@@ -2056,61 +2030,40 @@ class MainWindow(QMainWindow):
 
 
 
-        btn_refresh = QPushButton("🔄 Yenile")
-
+        btn_refresh = QPushButton(" Yenile")
+        btn_refresh.setIcon(get_app_icon(["view-refresh"], local_svg="view-refresh.svg"))
+        btn_refresh.setIconSize(QSize(16, 16))
         btn_refresh.clicked.connect(self._refresh_standings)
-
         btn_layout.addWidget(btn_refresh)
 
-
-
-        btn_html = QPushButton("📄 HTML Export")
-
+        btn_html = QPushButton(" HTML Export")
+        btn_html.setIcon(get_app_icon(["text-html"], local_svg="text-html.svg"))
+        btn_html.setIconSize(QSize(16, 16))
         btn_html.setProperty("secondary", True)
-
         btn_html.clicked.connect(self._export_html)
-
         btn_layout.addWidget(btn_html)
 
-
-
-        btn_excel = QPushButton("📊 Excel Export")
-
+        btn_excel = QPushButton(" Excel Export")
+        btn_excel.setIcon(get_app_icon(["spreadsheet"], local_svg="spreadsheet.svg"))
+        btn_excel.setIconSize(QSize(16, 16))
         btn_excel.setProperty("secondary", True)
-
         btn_excel.clicked.connect(self._export_excel)
-
         btn_layout.addWidget(btn_excel)
 
-
-
         btn_layout.addStretch()
-
         layout.addLayout(btn_layout)
 
-
-
-        self.tab_widget.addTab(widget, "📊 Sıralama")
-
-
+        self.tab_widget.addTab(widget, get_app_icon(["standings"], local_svg="standings.svg"), "Sıralama")
 
     def _create_crosstable_tab(self):
-
         widget = QWidget()
-
         layout = QVBoxLayout(widget)
 
-        
-
         self.crosstable_widget = CrossTableWidget()
-
         self.crosstable_widget.cellDoubleClicked.connect(self._on_crosstable_double_click)
-
         layout.addWidget(self.crosstable_widget)
 
-        
-
-        self.tab_widget.addTab(widget, "📈 Çapraz Tablo")
+        self.tab_widget.addTab(widget, get_app_icon(["crosstable", "spreadsheet"], local_svg="crosstable.svg"), "Çapraz Tablo")
 
 
 
@@ -2667,30 +2620,31 @@ class MainWindow(QMainWindow):
 
 
     def _open_tournament(self):
-
         filepath, _ = QFileDialog.getOpenFileName(
-
             self, "Turnuva Aç", "",
-
-            "Swiss Tournament Files (*.swt);;JSON Files (*.json);;All Files (*)"
-
+            "Swiss Tournament Files (*.swt);;JSON Files (*.json);;Oyuncu Listeleri (*.nat *.csv *.xlsx *.tsv);;All Files (*)"
         )
-
         if filepath:
+            lower = filepath.lower()
+            if lower.endswith((".nat", ".csv", ".xlsx", ".tsv")):
+                reply = QMessageBox.question(
+                    self,
+                    "Oyuncu Listesi Algılandı",
+                    f"'{os.path.basename(filepath)}' bir turnuva dosyası değil, oyuncu listesi dosyasıdır.\n\n"
+                    "Bu dosyadaki oyuncuları turnuvaya aktarmak ister misiniz?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self._import_player_list(initial_filepath=filepath)
+                return
 
             t = load_tournament(filepath)
-
             if t:
-
                 self.tournament = t
-
                 self.current_filepath = filepath
-
                 self._update_ui()
-
             else:
-
-                QMessageBox.critical(self, "Hata", "Dosya yüklenemedi!")
+                QMessageBox.critical(self, "Hata", "Dosya yüklenemedi!\nLütfen geçerli bir turnuva dosyası (*.swt) seçtiğinizden emin olun.")
 
 
 
@@ -2779,8 +2733,18 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Başarılı", "Excel dosyası oluşturuldu!")
 
             else:
-
                 QMessageBox.critical(self, "Hata", "Excel export başarısız!")
+
+    def _export_trf(self):
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "FIDE TRF Dışa Aktar", f"{self.tournament.name}.trf",
+            "FIDE Tournament Report (*.trf);;All Files (*)"
+        )
+        if filepath:
+            if export_trf(self.tournament, filepath):
+                QMessageBox.information(self, "Başarılı", "FIDE TRF dosyası başarıyla oluşturuldu!")
+            else:
+                QMessageBox.critical(self, "Hata", "TRF dosyası oluşturulamadı!")
 
 
 
@@ -2910,9 +2874,8 @@ class MainWindow(QMainWindow):
 
 
 
-    def _import_player_list(self):
-
-        dlg = PlayerListImportDialog(self)
+    def _import_player_list(self, initial_filepath: str = None):
+        dlg = PlayerListImportDialog(self, initial_filepath=initial_filepath)
 
         if dlg.exec():
 
@@ -2959,19 +2922,12 @@ class MainWindow(QMainWindow):
             
 
         self.tournament.players.sort(
-
             key=lambda p: (
-
                 -p.rating,
-
                 -get_title_value(p.title),
-
-                p.surname.lower(),
-
-                p.name.lower()
-
+                turkish_sort_key(p.surname),
+                turkish_sort_key(p.name)
             )
-
         )
 
         self._update_ui()
@@ -3554,7 +3510,7 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
-        self.tab_widget.addTab(self.broadcast_tab, "📡 Canlı Yayın")
+        self.tab_widget.addTab(self.broadcast_tab, get_app_icon(["broadcast", "applications-internet"], local_svg="broadcast.svg"), "Canlı Yayın")
 
 
 

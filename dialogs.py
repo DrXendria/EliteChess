@@ -72,6 +72,11 @@ class TournamentDialog(QDialog):
         self.rounds_spin.setValue(7)
         form.addRow("Tur Sayısı:", self.rounds_spin)
 
+        self.color_combo = QComboBox()
+        self.color_combo.addItem("Beyaz (White)", "W")
+        self.color_combo.addItem("Siyah (Black)", "B")
+        form.addRow("1. Tur 1. Masa (Seed 1) Rengi:", self.color_combo)
+
         self.double_rr_check = QCheckBox("Çift Round-Robin")
         form.addRow("", self.double_rr_check)
 
@@ -121,6 +126,9 @@ class TournamentDialog(QDialog):
         self.arbiter_edit.setText(self.tournament.arbiter)
         self.rounds_spin.setValue(self.tournament.num_rounds)
         self.double_rr_check.setChecked(self.tournament.is_double_round_robin)
+        idx_color = self.color_combo.findData(getattr(self.tournament, "first_round_color", "W"))
+        if idx_color >= 0:
+            self.color_combo.setCurrentIndex(idx_color)
 
         self.tb_list.clear()
         for tb in self.tournament.tiebreak_order:
@@ -176,6 +184,7 @@ class TournamentDialog(QDialog):
         self.tournament.arbiter = self.arbiter_edit.text()
         self.tournament.num_rounds = self.rounds_spin.value()
         self.tournament.is_double_round_robin = self.double_rr_check.isChecked()
+        self.tournament.first_round_color = self.color_combo.currentData() or "W"
 
         self.tournament.tiebreak_order = []
         for i in range(self.tb_list.count()):
@@ -442,7 +451,7 @@ class PlayerListImportDialog(QDialog):
         "birth_year": ["doğum yılı", "dogum yili", "birth year", "birthyear", "yıl", "yil", "born"],
     }
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, initial_filepath: str = None):
         super().__init__(parent)
         self.setWindowTitle("Oyuncu Listesi İçe Aktar")
         self.setMinimumSize(800, 550)
@@ -450,6 +459,8 @@ class PlayerListImportDialog(QDialog):
         self._raw_data: list[dict] = []
         self._col_mapping: dict[str, str] = {}
         self._init_ui()
+        if initial_filepath:
+            self._load_file(initial_filepath)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -512,15 +523,18 @@ class PlayerListImportDialog(QDialog):
             self, "Oyuncu Listesi Seç", "",
             "Tüm Desteklenen (*.csv *.xlsx *.txt *.tsv *.nat);;CSV (*.csv);;Excel (*.xlsx);;Text (*.txt *.tsv);;NAT (*.nat)"
         )
-        if not filepath:
-            return
+        if filepath:
+            self._load_file(filepath)
 
+    def _load_file(self, filepath: str):
         basename = filepath.replace("\\", "/").split("/")[-1]
         self.file_label.setText(basename)
 
         try:
             if filepath.lower().endswith(".xlsx"):
                 self._raw_data = self._read_excel(filepath)
+            elif filepath.lower().endswith(".nat"):
+                self._raw_data = self._read_nat(filepath)
             else:
                 self._raw_data = self._read_csv(filepath)
         except Exception as e:
@@ -532,6 +546,7 @@ class PlayerListImportDialog(QDialog):
             return
 
         self._setup_column_mapping()
+        self._update_preview()
         self._update_preview()
 
     def _read_csv(self, filepath: str) -> list[dict]:
@@ -548,6 +563,73 @@ class PlayerListImportDialog(QDialog):
             reader = csv.DictReader(f, dialect=dialect)
             for row in reader:
                 rows.append(row)
+        return rows
+
+    def _read_nat(self, filepath: str) -> list[dict]:
+        """Read TSF / Swiss-Manager .nat player list file.
+        Supports fixed-width column layouts and delimited formats,
+        handling Windows Turkish (CP1254) and UTF-8 encodings.
+        """
+        import re
+        encodings = ["utf-8-sig", "cp1254", "iso-8859-9", "latin-1"]
+        content = None
+        for enc in encodings:
+            try:
+                with open(filepath, "r", encoding=enc) as f:
+                    content = f.read()
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+
+        if not content:
+            return []
+
+        lines = [line.rstrip("\r\n") for line in content.splitlines() if line.strip()]
+        if not lines:
+            return []
+
+        rows = []
+        for line in lines:
+            clean_line = line.strip()
+            if clean_line.startswith(("-", "=", "#", "*")):
+                continue
+            lower_line = clean_line.lower()
+            if "soyad" in lower_line and ("elo" in lower_line or "ukd" in lower_line or "ad" in lower_line):
+                continue
+
+            # Standard TSF fixed-width column format:
+            # SNo (0:10), Soyad (10:30), Ad (30:53), ELO (53:58), UKD (58:65), Kulüp (65:)
+            if len(line) >= 30:
+                sno = line[0:10].strip()
+                soyad = line[10:30].strip() if len(line) >= 10 else ""
+                ad = line[30:53].strip() if len(line) >= 30 else ""
+                elo = line[53:58].strip() if len(line) >= 53 else ""
+                ukd = line[58:65].strip() if len(line) >= 58 else ""
+                club = line[65:].strip() if len(line) >= 65 else ""
+
+                if soyad or ad:
+                    rows.append({
+                        "No": sno,
+                        "Soyad": soyad,
+                        "Ad": ad,
+                        "ELO": elo,
+                        "UKD": ukd,
+                        "Kulüp": club,
+                    })
+                    continue
+
+            # Fallback: delimiter-separated
+            parts = [p.strip() for p in re.split(r'[\t;,|]+', clean_line) if p.strip()]
+            if len(parts) >= 2:
+                rows.append({
+                    "No": parts[0] if parts[0].isdigit() else "",
+                    "Soyad": parts[1] if len(parts) > 1 else "",
+                    "Ad": parts[2] if len(parts) > 2 else "",
+                    "ELO": parts[3] if len(parts) > 3 else "0",
+                    "UKD": parts[4] if len(parts) > 4 else "0",
+                    "Kulüp": parts[5] if len(parts) > 5 else "",
+                })
+
         return rows
 
     def _read_excel(self, filepath: str) -> list[dict]:
@@ -610,8 +692,12 @@ class PlayerListImportDialog(QDialog):
                     col_lower = col.replace("İ", "i").replace("I", "ı").lower().strip()
                     if key == "name" and "soy" in col_lower:
                         continue
+                    if key == "fide_id" and "fide" not in col_lower:
+                        continue
+                    if col_lower in ["no", "sno", "sira", "sıra", "sn", "#", "nr", "numara"]:
+                        continue
                     for alias in aliases:
-                        if alias in col_lower or col_lower in alias:
+                        if alias in col_lower or (len(col_lower) >= 3 and col_lower in alias):
                             idx = combo.findData(col)
                             if idx >= 0:
                                 combo.setCurrentIndex(idx)
@@ -666,6 +752,9 @@ class PlayerListImportDialog(QDialog):
                 elo = int(str(raw_elo).strip().replace(".", "").replace(",", ""))
             except (ValueError, TypeError):
                 pass
+
+            if rating == 0:
+                rating = elo or ukd
 
             title_str = row.get(mapping.get("title", ""), "").strip().upper()
             title = Title.NONE

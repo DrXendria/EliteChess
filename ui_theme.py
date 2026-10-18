@@ -61,7 +61,7 @@ def get_stylesheet(theme: AppTheme) -> str:
 def _light_stylesheet() -> str:
     return """
     * {
-        font-family: 'Segoe UI', 'Arial', sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Ubuntu', 'Cantarell', 'Inter', 'Arial', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
     }
     QMainWindow, QDialog {
         background-color: #f0f2f5;
@@ -232,7 +232,7 @@ def _light_stylesheet() -> str:
 def _dark_stylesheet() -> str:
     return """
     * {
-        font-family: 'Segoe UI', 'Arial', sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Ubuntu', 'Cantarell', 'Inter', 'Arial', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
     }
     QMainWindow, QDialog {
         background-color: #1a1a2e;
@@ -401,7 +401,7 @@ def _dark_stylesheet() -> str:
 def _modern_dark_stylesheet() -> str:
     return """
     * {
-        font-family: 'Segoe UI', 'Arial', sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Ubuntu', 'Cantarell', 'Inter', 'Arial', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
     }
     QMainWindow, QDialog {
         background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,

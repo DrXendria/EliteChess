@@ -2,7 +2,19 @@
 Swiss, Round-Robin, and Team Swiss pairing engines.
 """
 import random
-from models import Tournament, Match, Round, MatchResult, Player, TournamentType
+from models import (
+    Tournament, Match, Round, MatchResult, Player,
+    TournamentType, Title, turkish_sort_key
+)
+
+
+def _get_title_rank(title: Title) -> int:
+    order = {
+        Title.GM: 10, Title.IM: 9, Title.FM: 8, Title.CM: 7,
+        Title.WGM: 6, Title.WIM: 5, Title.WFM: 4, Title.WCM: 3,
+        Title.NM: 2, Title.NONE: 1
+    }
+    return order.get(title, 0)
 
 
 def generate_pairings(tournament: Tournament) -> Round | None:
@@ -27,7 +39,66 @@ def _generate_swiss_pairings(tournament: Tournament) -> Round | None:
     if len(active) < 2:
         return None
 
+    if next_round == 1:
+        return _swiss_first_round(tournament, active)
     return _swiss_subsequent_round(tournament, active, next_round)
+
+
+def _swiss_first_round(tournament: Tournament, players: list[Player]) -> Round:
+    """FIDE C.04.3.1 Round 1 Swiss pairing:
+    1. Sort players by official seed ranking: Rating -> Title -> Turkish Alphabetical.
+    2. If odd, lowest-seeded player receives the pairing-allocated bye.
+    3. Split into S1 (top half) and S2 (bottom half).
+    4. Pair S1[i] vs S2[i].
+    5. Color allocation (FIDE C.04.3.1.2):
+       Seed 1 receives tournament.first_round_color ('W' or 'B').
+       Colors alternate strictly between boards (Odd boards = seed1_color, Even boards = opposite).
+    """
+    sorted_players = sorted(
+        players,
+        key=lambda p: (
+            -p.rating,
+            -_get_title_rank(p.title),
+            turkish_sort_key(p.surname or ""),
+            turkish_sort_key(p.name or ""),
+            tournament.get_player_pairing_number(p.id) or 9999
+        )
+    )
+
+    working = list(sorted_players)
+    bye_player = None
+    if len(working) % 2 == 1:
+        bye_player = working.pop()  # Lowest seeded player gets the bye per FIDE C.04.1.c
+
+    half = len(working) // 2
+    s1 = working[:half]
+    s2 = working[half:]
+
+    seed1_white = (getattr(tournament, "first_round_color", "W").upper() != "B")
+
+    matches = []
+    for i in range(half):
+        p1 = s1[i]
+        p2 = s2[i]
+        board_num = i + 1
+
+        # FIDE C.04.3.1.2: Alternate colors between odd and even boards
+        s1_is_white = seed1_white if (i % 2 == 0) else not seed1_white
+
+        if s1_is_white:
+            matches.append(Match(board=board_num, white_id=p1.id, black_id=p2.id))
+        else:
+            matches.append(Match(board=board_num, white_id=p2.id, black_id=p1.id))
+
+    if bye_player:
+        matches.append(Match(
+            board=len(matches) + 1,
+            white_id=bye_player.id,
+            black_id="BYE",
+            result=MatchResult.BYE
+        ))
+
+    return Round(round_number=1, matches=matches)
 
 
 def _swiss_subsequent_round(tournament: Tournament, players: list[Player], round_num: int) -> Round:
@@ -38,7 +109,13 @@ def _swiss_subsequent_round(tournament: Tournament, players: list[Player], round
 
     sorted_players = sorted(
         players,
-        key=lambda p: (-player_scores[p.id], -p.rating)
+        key=lambda p: (
+            -player_scores[p.id],
+            -p.rating,
+            -_get_title_rank(p.title),
+            turkish_sort_key(p.surname or ""),
+            turkish_sort_key(p.name or "")
+        )
     )
 
     bye_player = None
@@ -95,8 +172,16 @@ def _pair_score_groups(tournament: Tournament, players: list[Player], scores: di
     for score in sorted_scores:
         current_players = score_groups[score]
         
-        # Sort current_players by rating descending, tiebreak alphabetically
-        current_players.sort(key=lambda p: (-p.rating, (p.surname or "").lower(), (p.name or "").lower(), p.id))
+        # Sort current_players by FIDE seeding: rating descending, title rank, Turkish alphabetical
+        current_players.sort(
+            key=lambda p: (
+                -p.rating,
+                -_get_title_rank(p.title),
+                turkish_sort_key(p.surname or ""),
+                turkish_sort_key(p.name or ""),
+                tournament.get_player_pairing_number(p.id) or 9999
+            )
+        )
         
         # 1. Pair down-floaters with the highest available players in current_players
         unpaired_floaters = []

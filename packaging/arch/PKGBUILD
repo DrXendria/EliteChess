@@ -1,0 +1,30 @@
+# Maintainer: Emir Cica
+pkgname=elite-chess
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="FIDE Compliant Swiss Chess Tournament Manager"
+arch=('x86_64')
+url="https://github.com/DrXendria/Elite-Chess-Manager"
+license=('GPL3')
+depends=('python' 'python-pyqt6' 'python-openpyxl')
+makedepends=('python-build' 'python-installer' 'python-wheel' 'python-pyinstaller')
+source=("git+https://github.com/DrXendria/Elite-Chess-Manager.git")
+sha256sums=('SKIP')
+
+build() {
+    cd "$srcdir/Elite-Chess-Manager"
+    pyinstaller --clean --noconsole --name "elite-chess" \
+        --paths . --add-data "resources:resources" main.py
+}
+
+package() {
+    cd "$srcdir/Elite-Chess-Manager"
+    install -dm755 "$pkgdir/opt/elite-chess"
+    cp -a dist/elite-chess/* "$pkgdir/opt/elite-chess/"
+
+    install -dm755 "$pkgdir/usr/bin"
+    ln -sf /opt/elite-chess/elite-chess "$pkgdir/usr/bin/elite-chess"
+
+    install -Dm644 packaging/elite-chess.desktop "$pkgdir/usr/share/applications/elite-chess.desktop"
+    install -Dm644 resources/logo.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/elite-chess.png"
+}
