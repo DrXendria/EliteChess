@@ -9,7 +9,7 @@ if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt pyinstaller
 
 echo "=== [2/3] PyInstaller ile Linux Binary Derleniyor ==="
 python -m PyInstaller \
@@ -17,6 +17,7 @@ python -m PyInstaller \
     --clean \
     --noconsole \
     --name "elite-chess" \
+    --icon "resources/logo.png" \
     --paths . \
     --add-data "resources:resources" \
     main.py
@@ -30,7 +31,7 @@ if command -v rpmbuild >/dev/null 2>&1; then
         --define "project_root $PROJECT_DIR" \
         -bb packaging/rpm/elite-chess.spec
     
-    cp build/rpmbuild/RPMS/x86_64/elite-chess-*.rpm dist/rpm/
+    cp -f build/rpmbuild/RPMS/x86_64/elite-chess-*.rpm dist/rpm/
     echo "✓ RPM Paketi oluşturuldu: $(ls -1 dist/rpm/elite-chess-*.rpm)"
 else
     echo "UYARI: 'rpmbuild' bulunamadı, .rpm paketi atlandı."

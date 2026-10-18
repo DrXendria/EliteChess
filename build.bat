@@ -1,13 +1,38 @@
 @echo off
-echo Uygulama kapatiliyor (eger aciksa)...
+setlocal
+echo ========================================================
+echo   Elite Chess Tournament Manager - Windows Derleme
+echo ========================================================
+echo.
+
+echo [1/3] Calisan uygulama varsa kapatiliyor...
 taskkill /F /IM Elite_Chess_Manager.exe /T 2>NUL
 echo.
-echo PyInstaller kuruluyor (gerekirse)...
-pip install pyinstaller
+
+echo [2/3] Gerekli bagimliliklar kuruluyor...
+pip install -r requirements.txt pyinstaller
 echo.
-echo Uygulama EXE dosyasina donusturuluyor...
-python -m PyInstaller --clean --noconsole --onefile --name "Elite_Chess_Manager" --paths . --add-data "resources;resources" main.py
+
+echo [3/3] PyInstaller ile tek dosya EXE olusturuluyor...
+python -m PyInstaller ^
+    --clean ^
+    --noconfirm ^
+    --noconsole ^
+    --onefile ^
+    --name "Elite_Chess_Manager" ^
+    --icon "resources/logo.ico" ^
+    --paths . ^
+    --add-data "resources;resources" ^
+    main.py
+
 echo.
-echo Derleme tamamlandi! 
-echo Elite_Chess_Manager.exe dosyasi 'dist' klasoru icerisinde olusturuldu.
+if exist "dist\Elite_Chess_Manager.exe" (
+    echo ========================================================
+    echo   Derleme basariyla tamamlandi!
+    echo   Konum: dist\Elite_Chess_Manager.exe
+    echo ========================================================
+) else (
+    echo [HATA] Derleme basarisiz oldu!
+)
+echo.
 pause

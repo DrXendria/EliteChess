@@ -29,7 +29,7 @@ jobs:
 
       - name: Build Executable with PyInstaller
         run: |
-          python -m PyInstaller --clean --noconsole --onefile --name "Elite_Chess_Manager" --paths . --add-data "resources;resources" main.py
+          python -m PyInstaller --clean --noconsole --onefile --name "Elite_Chess_Manager" --icon "resources/logo.ico" --paths . --add-data "resources;resources" main.py
 
       - name: Upload Windows EXE Artifact
         uses: actions/upload-artifact@v4
